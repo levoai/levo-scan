@@ -43,12 +43,18 @@ jobs:
           TOKEN = os.environ["GH_TOKEN"]
           NAME_RE = re.compile(r"^[A-Za-z0-9 ._-]{1,80}$")
 
-          # Anything atom can analyse. A repository whose main language is not
-          # here is skipped with a reason rather than scanned pointlessly.
+          # Anything the scanner can analyse. A repository whose main language
+          # is not here is skipped with a reason rather than scanned pointlessly.
           ALIASES = {
               "c#": "csharp", "csharp": "csharp", ".net": "csharp", "dotnet": "csharp",
               "javascript": "javascript", "typescript": "typescript",
-              "java": "java", "kotlin": "java",
+              "java": "java",
+              # Kotlin is analysed by kosi, not atom. This mapped to "java"
+              # before the scanner grew a Kotlin path, and atom reads a Kotlin
+              # controller as plain JVM source: a Kotlin repository scanned as
+              # java reports zero endpoints and still exits "completed", so the
+              # mistake is invisible in the job log.
+              "kotlin": "kotlin", "kt": "kotlin",
               "python": "python", "ruby": "ruby", "php": "php",
               "rust": "rust", "go": "go",
           }
