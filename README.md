@@ -3,8 +3,9 @@
 This repository controls Levo's code-side API discovery for your organisation.
 
 It holds the scan workflow, the scan configuration, and the credential that
-reads your source. **It does not contain your source code, and Levo cannot reach
-any repository other than this one.**
+reads your source. **It does not contain your source code, and Levo has no access
+to this repository or any other.** Scans run on your GitHub runners; only the
+generated API specifications are sent to Levo.
 
 ---
 
@@ -12,10 +13,10 @@ any repository other than this one.**
 
 | | |
 |---|---|
-| Levo can read and write **this** repository | to keep `levo-config.yml` current |
-| Levo can open pull requests **here** | to propose changes you review |
+| Your runners clone and scan | one repository at a time, with a token limited to that repository |
+| Levo receives | the generated API specification, the application name and the environment |
 | Levo **cannot** read your source repositories | it holds no credential that can |
-| Levo **cannot** modify anything under `.github/workflows/` | it does not hold that permission — GitHub refuses |
+| Levo **cannot** change this repository | it has no access to it |
 
 The credential that clones your source is one **you** create, stored as a secret
 in this repository. Levo never receives it.
@@ -78,8 +79,9 @@ In **this** repository: Settings → Secrets and variables → Actions.
 > and a variable can be read back afterwards — so a typo is visible. A mistyped
 > secret cannot be read back and stays invisible until a scan fails.
 
-If your Levo tenant is not on `api.levo.ai`, add a variable named
-`LEVOAI_BASE_URL` as well.
+If your Levo tenant is in India, copy the two keys from `app.india-1.levo.ai`
+instead and add a variable named `LEVOAI_BASE_URL` with the value
+`https://api.india-1.levo.ai`. Without it, results go to `api.levo.ai`.
 
 ### 4. Nothing to list
 
@@ -99,15 +101,24 @@ to whatever you actually run (`production`, `NonProd`, `uat`).
 Actions → **Levo scan** → **Run workflow**. After that it runs weekly on its
 own.
 
+### Limits
+
+Each repository gets up to 40 minutes (`scan_timeout`, default 30). A repository
+that runs longer is stopped and reported; the others carry on. One run scans at
+most 256 repositories. If more qualify, the run stops before scanning and says
+so; narrow the Scan App's access or use `exclude`.
+
 ---
 
 ## Recommended hardening
 
 Worth doing before you rely on this, and quick.
 
-**Put the credential behind an Environment.** Settings → Environments → new
-environment named `levo-scan` → move `APP_PRIVATE_KEY` into it → set
-**Deployment branches** to your default branch only.
+**Put the credential behind an Environment.** The workflow already runs in an
+environment named `levo-scan`; GitHub creates it on the first run. Settings →
+Environments → `levo-scan` → add `APP_PRIVATE_KEY` as an environment secret →
+delete the repository secret of the same name → set **Deployment branches** to
+your default branch only.
 
 This matters more than it appears: repository secrets are **not** limited to
 your default branch, so any workflow pushed to any branch — including an
@@ -125,5 +136,6 @@ exist.
 
 ## Removing it
 
-Uninstall the Levo App, or delete the Scan App you created. Either stops access
-immediately. Specs already sent to Levo are retained unless you ask otherwise.
+Uninstall or delete the Scan App you created. That stops access to your
+repositories immediately. Specs already sent to Levo are retained unless you ask
+otherwise.

@@ -9,10 +9,14 @@ concurrency:
   group: levo-scan
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: levo-scan
     outputs:
       matrix: ${{ steps.build.outputs.matrix }}
       count: ${{ steps.build.outputs.count }}
@@ -92,7 +96,7 @@ jobs:
 
           defaults = cfg.get("defaults") or {}
           env_name = str(defaults.get("env_name", "staging"))
-          timeout = max(60, min(5400, int(defaults.get("scan_timeout", 1800))))
+          timeout = max(60, min(2400, int(defaults.get("scan_timeout", 1800))))
 
           # Per-repository overrides, keyed by "owner/name". Everything in here
           # is optional; a repository with no entry still gets scanned.
@@ -168,6 +172,13 @@ jobs:
               die("Nothing to scan. Grant the Scan App access to a repository, "
                   "or check the skip reasons above.")
 
+          # GitHub starts at most 256 jobs from one matrix and rejects the rest of
+          # the run with an error that does not say why.
+          if len(entries) > 256:
+              die(f"{len(entries)} repositories qualify, but one run can scan at most 256. "
+                  "Narrow the Scan App's repository access, or add repositories to "
+                  "exclude in levo-config.yml.")
+
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
               fh.write(f"matrix={json.dumps({'include': entries})}\n")
               fh.write(f"count={len(entries)}\n")
@@ -176,17 +187,15 @@ jobs:
   scan:
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    # One repository failing must not fail the run (PRD FR-038, EC-14).
+    # Above the 40-minute scan_timeout ceiling, so the scanner's own limit is the one that fires.
+    timeout-minutes: 55
+    environment: levo-scan
+    # One repository failing must not fail the run.
     continue-on-error: true
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-
-    permissions:
-      contents: read
-      id-token: write
 
     steps:
       - name: Mint a clone token scoped to this repository only
