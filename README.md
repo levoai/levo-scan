@@ -37,11 +37,14 @@ Go to your organisation's settings → Developer settings → **New GitHub App**
 
 | Field | Value |
 |---|---|
-| Name | anything, e.g. `<your-org> Levo Scanner` |
+| Name | `Levo Scan - <Your Company>` |
 | Homepage URL | anything |
 | Webhook → Active | **untick** |
 | Repository permissions → **Contents** | **Read-only** |
 | Everything else | No access |
+
+> GitHub App names are unique across the whole of GitHub, so include your
+> company name — `Levo Scan - Acme Corp`. The plain form is already taken.
 
 Create it, note the **App ID**, and **Generate a private key** (a `.pem` file
 downloads).
@@ -57,15 +60,26 @@ Then **Install App** → select **only** the repositories you want scanned.
 
 In **this** repository: Settings → Secrets and variables → Actions.
 
+**Secrets** tab:
+
 | Secret | Value |
 |---|---|
-| `SCAN_APP_ID` | the App ID from step 2 |
-| `SCAN_APP_PRIVATE_KEY` | the full contents of the `.pem` file |
-| `LEVO_AUTH_KEY` | from app.levo.ai → Settings → Keys |
-| `LEVO_ORG_ID` | from app.levo.ai → Settings → Organization |
+| `APP_PRIVATE_KEY` | the full contents of the `.pem` file |
+| `LEVOAI_AUTH_KEY` | from app.levo.ai → Settings → Keys |
+| `LEVOAI_ORG_ID` | from app.levo.ai → Settings → Organization |
 
-If your Levo tenant is not on `api.levo.ai`, add a **variable** (not a secret)
-named `LEVO_BASE_URL`.
+**Variables** tab:
+
+| Variable | Value |
+|---|---|
+| `APP_ID` | the App ID from step 2 |
+
+> `APP_ID` is a variable rather than a secret because it is not confidential,
+> and a variable can be read back afterwards — so a typo is visible. A mistyped
+> secret cannot be read back and stays invisible until a scan fails.
+
+If your Levo tenant is not on `api.levo.ai`, add a variable named
+`LEVOAI_BASE_URL` as well.
 
 ### 4. Nothing to list
 
@@ -74,7 +88,11 @@ App access to. The language is read from GitHub's language statistics, and each
 application is named after its repository.
 
 `levo-config.yml` is there only if you want to override any of that, or exclude
-a repository the Scan App can see. You can leave it as it is.
+a repository the Scan App can see.
+
+One setting in it is worth checking: **`env_name`**, which is the environment
+your endpoints are tagged with in Levo. It is `staging` by default — change it
+to whatever you actually run (`production`, `NonProd`, `uat`).
 
 ### 5. Run it
 
@@ -88,7 +106,7 @@ own.
 Worth doing before you rely on this, and quick.
 
 **Put the credential behind an Environment.** Settings → Environments → new
-environment named `levo-scan` → move `SCAN_APP_PRIVATE_KEY` into it → set
+environment named `levo-scan` → move `APP_PRIVATE_KEY` into it → set
 **Deployment branches** to your default branch only.
 
 This matters more than it appears: repository secrets are **not** limited to

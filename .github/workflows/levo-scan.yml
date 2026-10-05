@@ -26,8 +26,8 @@ jobs:
         id: discovery-token
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
-          app-id: ${{ secrets.SCAN_APP_ID }}
-          private-key: ${{ secrets.SCAN_APP_PRIVATE_KEY }}
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
       - name: Build the scan matrix
@@ -48,7 +48,7 @@ jobs:
           ALIASES = {
               "c#": "csharp", "csharp": "csharp", ".net": "csharp", "dotnet": "csharp",
               "javascript": "javascript", "typescript": "typescript",
-              "java": "java", "kotlin": "java",
+              "java": "java", "kotlin": "kotlin",
               "python": "python", "ruby": "ruby", "php": "php",
               "rust": "rust", "go": "go",
           }
@@ -193,8 +193,8 @@ jobs:
         id: clone-token
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
-          app-id: ${{ secrets.SCAN_APP_ID }}
-          private-key: ${{ secrets.SCAN_APP_PRIVATE_KEY }}
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ matrix.owner }}
           repositories: ${{ matrix.name }}
 
@@ -219,9 +219,9 @@ jobs:
 
       - name: Scan and upload
         env:
-          LEVO_AUTH_KEY: ${{ secrets.LEVO_AUTH_KEY }}
-          LEVO_ORG_ID: ${{ secrets.LEVO_ORG_ID }}
-          LEVO_BASE_URL: ${{ vars.LEVO_BASE_URL || 'https://api.levo.ai' }}
+          LEVO_AUTH_KEY: ${{ secrets.LEVOAI_AUTH_KEY }}
+          LEVO_ORG_ID: ${{ secrets.LEVOAI_ORG_ID }}
+          LEVO_BASE_URL: ${{ vars.LEVOAI_BASE_URL || 'https://api.levo.ai' }}
           APP_NAME: ${{ matrix.app_name }}
           ENV_NAME: ${{ matrix.env_name }}
           LANGUAGE: ${{ matrix.language }}
@@ -232,7 +232,7 @@ jobs:
             echo "Upload mode: results go to $LEVO_BASE_URL as '$APP_NAME' / $ENV_NAME"
             ARGS+=(--app-name "$APP_NAME" --env-name "$ENV_NAME" -k "$LEVO_AUTH_KEY" -o "$LEVO_ORG_ID")
           else
-            echo "::notice::LEVO_AUTH_KEY not set - generating the spec locally only."
+            echo "::notice::LEVOAI_AUTH_KEY not set - generating the spec locally only."
             ARGS+=(--no-upload --output /workspace/levo-openapi.json)
           fi
           docker run --rm \
