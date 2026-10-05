@@ -96,7 +96,7 @@ jobs:
 
           defaults = cfg.get("defaults") or {}
           env_name = str(defaults.get("env_name", "staging"))
-          timeout = max(60, min(5400, int(defaults.get("scan_timeout", 1800))))
+          timeout = max(60, min(3600, int(defaults.get("scan_timeout", 1800))))
 
           # Per-repository overrides, keyed by "owner/name". Everything in here
           # is optional; a repository with no entry still gets scanned.
@@ -180,8 +180,8 @@ jobs:
   scan:
     needs: plan
     runs-on: ubuntu-latest
-    # Above the 90-minute scan_timeout ceiling, so the scanner's own limit is the one that fires.
-    timeout-minutes: 105
+    # Above the 60-minute scan_timeout ceiling, so the scanner's own limit is the one that fires.
+    timeout-minutes: 75
     environment: levo-scan
     # One repository failing must not fail the run.
     continue-on-error: true

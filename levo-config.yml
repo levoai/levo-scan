@@ -11,7 +11,7 @@ defaults:
   # whatever you actually run -- production, NonProd, uat. It applies to
   # everything this control repository scans.
   env_name: staging
-  # Per-repository time limit, in seconds. Between 60 and 5400.
+  # Per-repository time limit, in seconds. Between 60 and 3600 (one hour).
   scan_timeout: 1800
 
 # Repositories to leave out, even though the Scan App can see them.
