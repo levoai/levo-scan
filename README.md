@@ -101,6 +101,13 @@ to whatever you actually run (`production`, `NonProd`, `uat`).
 Actions → **Levo scan** → **Run workflow**. After that it runs weekly on its
 own.
 
+### Limits
+
+Each repository gets up to 40 minutes (`scan_timeout`, default 30). A repository
+that runs longer is stopped and reported; the others carry on. One run scans at
+most 256 repositories. If more qualify, the run stops before scanning and says
+so; narrow the Scan App's access or use `exclude`.
+
 ---
 
 ## Recommended hardening
