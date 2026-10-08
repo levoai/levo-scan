@@ -52,9 +52,9 @@ jobs:
           ALIASES = {
               "c#": "csharp", "csharp": "csharp", ".net": "csharp", "dotnet": "csharp",
               "javascript": "javascript", "typescript": "typescript",
-              "java": "java", "kotlin": "kotlin",
+              "java": "java", "kotlin": "kotlin", "kt": "kotlin",
               "python": "python", "ruby": "ruby", "php": "php",
-              "rust": "rust", "go": "go",
+              "rust": "rust", "rs": "rust", "go": "go", "golang": "go",
           }
 
           def die(msg):
