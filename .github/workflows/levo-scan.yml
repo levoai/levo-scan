@@ -11,6 +11,9 @@ concurrency:
 
 permissions:
   contents: read
+  # Lets the job prove to Levo which repository and environment it runs in.
+  # Unused when you bring your own Scan App.
+  id-token: write
 
 jobs:
   plan:
@@ -23,21 +26,56 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # Lists what the Scan App was granted and reads language statistics.
-      # Metadata only -- this job never clones. The per-repository narrowing
-      # that matters is applied again in the scan job below.
-      - name: Read what the Scan App can see
-        id: discovery-token
+      # Lists what can be scanned and reads language statistics. Metadata only
+      # -- this job never clones. The per-repository narrowing that matters is
+      # applied again in the scan job below.
+      #
+      # With your own Scan App (APP_ID set) the token comes from its key.
+      # Otherwise Levo issues a pass for the Levo GitHub App, and only to this
+      # repository's workflow running in the levo-scan environment.
+      - name: Read what your Scan App can see
+        id: own-app
+        if: vars.APP_ID != ''
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
+      - name: Get a planning pass from Levo
+        id: levo-pass
+        if: vars.APP_ID == ''
+        env:
+          LEVO_API: ${{ vars.LEVOAI_BASE_URL || 'https://api.levo.ai' }}
+        run: |
+          card=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$LEVO_API" | jq -r .value)
+          resp=$(curl -sS -X POST -H "X-Levo-Workflow-Token: $card" "$LEVO_API/github/passes/plan")
+          token=$(echo "$resp" | jq -r '.token // empty' 2>/dev/null || true)
+          if [ -z "$token" ]; then
+            echo "::error::Levo refused a planning pass: $resp"
+            echo "::error::Install and connect the Levo GitHub App from Levo (Integrations > GitHub App), or set the APP_ID variable and APP_PRIVATE_KEY secret to use your own Scan App."
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+          echo "$resp" | jq -c '{permissions, expires_at}'
+
+      - name: Check the planning pass cannot read code
+        if: vars.APP_ID == ''
+        env:
+          TOKEN: ${{ steps.levo-pass.outputs.token }}
+        run: |
+          repo=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api.github.com/installation/repositories?per_page=1" | jq -r '.repositories[0].full_name // empty')
+          [ -n "$repo" ] || exit 0
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/$repo/contents/")
+          echo "planning pass reading $repo contents -> HTTP $code (403 expected)"
+          [ "$code" = "403" ] || [ "$code" = "404" ] || { echo "::error::The planning pass can read code."; exit 1; }
+
       - name: Build the scan matrix
         id: build
         env:
-          GH_TOKEN: ${{ steps.discovery-token.outputs.token }}
+          GH_TOKEN: ${{ steps.own-app.outputs.token || steps.levo-pass.outputs.token }}
           CONTROL_REPO: ${{ github.repository }}
         run: |
           python3 - <<'PY'
@@ -153,7 +191,7 @@ jobs:
                   continue
 
               entries.append({
-                  "repo": full, "owner": repo["owner"]["login"], "name": repo["name"],
+                  "repo": full, "owner": repo["owner"]["login"], "name": repo["name"], "id": repo["id"],
                   "language": resolved, "app_name": app,
                   "env_name": env_name, "timeout": timeout,
               })
@@ -199,7 +237,8 @@ jobs:
 
     steps:
       - name: Mint a clone token scoped to this repository only
-        id: clone-token
+        id: own-app
+        if: vars.APP_ID != ''
         uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
         with:
           app-id: ${{ vars.APP_ID }}
@@ -207,9 +246,26 @@ jobs:
           owner: ${{ matrix.owner }}
           repositories: ${{ matrix.name }}
 
+      - name: Get a read pass for this repository only
+        id: levo-pass
+        if: vars.APP_ID == ''
+        env:
+          LEVO_API: ${{ vars.LEVOAI_BASE_URL || 'https://api.levo.ai' }}
+          REPO_ID: ${{ matrix.id }}
+        run: |
+          card=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$LEVO_API" | jq -r .value)
+          resp=$(curl -sS -X POST -H "X-Levo-Workflow-Token: $card" -H "Content-Type: application/json" \
+            -d "{\"repository_id\": $REPO_ID}" "$LEVO_API/github/passes/scan")
+          token=$(echo "$resp" | jq -r '.token // empty' 2>/dev/null || true)
+          [ -n "$token" ] || { echo "::error::Levo refused a read pass: $resp"; exit 1; }
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+          echo "$resp" | jq -c '{permissions, repositories, expires_at}'
+
       - name: Negative control - token must not reach the control repo
         env:
-          TOKEN: ${{ steps.clone-token.outputs.token }}
+          TOKEN: ${{ steps.own-app.outputs.token || steps.levo-pass.outputs.token }}
           CONTROL_REPO: ${{ github.repository }}
         run: |
           code=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -221,7 +277,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ matrix.repo }}
-          token: ${{ steps.clone-token.outputs.token }}
+          token: ${{ steps.own-app.outputs.token || steps.levo-pass.outputs.token }}
           path: product
           fetch-depth: 1
           persist-credentials: false
@@ -278,3 +334,12 @@ jobs:
             product/levo-openapi.json
             product/scan-results/**/openapi_spec.json
           if-no-files-found: warn
+
+      # Your own Scan App's token is revoked by its action; a Levo pass is revoked here.
+      - name: Revoke the read pass
+        if: always() && steps.levo-pass.outputs.token != ''
+        env:
+          TOKEN: ${{ steps.levo-pass.outputs.token }}
+        run: |
+          curl -s -o /dev/null -w "revoke -> HTTP %{http_code}\n" -X DELETE \
+            -H "Authorization: Bearer $TOKEN" https://api.github.com/installation/token
