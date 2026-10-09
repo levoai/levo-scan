@@ -23,6 +23,28 @@ in this repository. Levo never receives it.
 
 ---
 
+## Using the Levo GitHub App instead
+
+If your Levo account offers it (**Integrations → GitHub App** in Levo), you can
+skip creating your own Scan App:
+
+1. In Levo: **Integrations → GitHub App → Install GitHub App**. Choose your
+   organisation and the repositories to scan, then **Connect installation**.
+2. Create this repository (step 1 below) and add only `LEVOAI_AUTH_KEY` and
+   `LEVOAI_ORG_ID` (step 3), plus `LEVOAI_BASE_URL` if your Levo is not
+   `app.levo.ai`. Do **not** set `APP_ID`.
+3. Run it (step 5).
+
+Without `APP_ID`, the workflow asks Levo for short-lived passes instead of using
+a key you hold: a metadata-only pass to list repositories, then, per repository,
+a read-only pass for that repository alone, revoked when its scan ends. Levo
+issues passes only to this repository's workflow running in the `levo-scan`
+environment, so restrict that environment to your default branch (see
+Recommended hardening). In this mode the Levo GitHub App holds read access to the
+repositories you grant it; the table above describes your own Scan App.
+
+---
+
 ## Setup
 
 ### 1. Create this repository
