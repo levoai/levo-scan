@@ -147,12 +147,12 @@ jobs:
           exclude = {str(x) for x in (cfg.get("exclude") or [])}
           exclude.add(os.environ["CONTROL_REPO"])
 
-          # The Scan App's installation is the source of truth for scope. A
+          # The GitHub App's installation is the source of truth for scope. A
           # repository listed in config but not granted cannot be scanned, and a
           # repository granted but not listed still should be.
           granted = all_granted()
           if not granted:
-              die("The Scan App has not been granted access to any repository.")
+              die("The GitHub App has not been granted access to any repository.")
 
           entries, skipped = [], []
           for repo in granted:
@@ -196,7 +196,7 @@ jobs:
                   "env_name": env_name, "timeout": timeout,
               })
 
-          print(f"{len(granted)} repository/repositories granted to the Scan App\n")
+          print(f"{len(granted)} repository/repositories granted to the GitHub App\n")
           if entries:
               print("Will scan:")
               for e in entries:
@@ -207,14 +207,14 @@ jobs:
                   print(f"  {full:45} {reason}")
 
           if not entries:
-              die("Nothing to scan. Grant the Scan App access to a repository, "
+              die("Nothing to scan. Grant the GitHub App access to a repository, "
                   "or check the skip reasons above.")
 
           # GitHub starts at most 256 jobs from one matrix and rejects the rest of
           # the run with an error that does not say why.
           if len(entries) > 256:
               die(f"{len(entries)} repositories qualify, but one run can scan at most 256. "
-                  "Narrow the Scan App's repository access, or add repositories to "
+                  "Narrow the GitHub App's repository access, or add repositories to "
                   "exclude in levo-config.yml.")
 
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
