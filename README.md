@@ -164,6 +164,14 @@ exist.
 
 ---
 
+## Updating
+
+A repository created from this template does not change when the template
+does. To update yours, copy `.github/workflows/levo-scan.yml` and the
+`.github/scripts/` folder from this template into it.
+
+---
+
 ## Removing it
 
 Uninstall or delete the Scan App you created. That stops access to your
