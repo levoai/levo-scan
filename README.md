@@ -128,9 +128,15 @@ own.
 ### Limits
 
 Each repository gets up to 40 minutes (`scan_timeout`, default 30). A repository
-that runs longer is stopped and reported; the others carry on. One run scans at
-most 256 repositories. If more qualify, the run stops before scanning and says
-so; narrow the Scan App's access or use `exclude`.
+that runs longer is stopped and reported; the others carry on.
+
+GitHub runs at most 256 jobs in one run. Up to 256 repositories, each gets its
+own job. Beyond that, each job scans a few repositories one after another --
+two each up to 512, and so on -- still with a separate read-only token for each
+repository. One run covers up to 2,560 repositories with the default
+`scan_timeout`, or 1,792 at the maximum. If more qualify, the run stops before
+scanning and says so; lower `scan_timeout`, narrow the Scan App's access or use
+`exclude`.
 
 ---
 
@@ -155,6 +161,14 @@ gate every scheduled run, so a weekly scan would wait for a human indefinitely.
 **Protect this repository's default branch** and require review from the team
 named in `CODEOWNERS`. Update that file first — the placeholder team does not
 exist.
+
+---
+
+## Updating
+
+A repository created from this template does not change when the template
+does. To update yours, copy `.github/workflows/levo-scan.yml` and the
+`.github/scripts/` folder from this template into it.
 
 ---
 

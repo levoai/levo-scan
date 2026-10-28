@@ -23,6 +23,8 @@ jobs:
     outputs:
       matrix: ${{ steps.build.outputs.matrix }}
       count: ${{ steps.build.outputs.count }}
+      groups: ${{ steps.build.outputs.groups }}
+      job_timeout: ${{ steps.build.outputs.job_timeout }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -77,276 +79,51 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.own-app.outputs.token || steps.levo-pass.outputs.token }}
           CONTROL_REPO: ${{ github.repository }}
-        run: |
-          python3 - <<'PY'
-          import json, os, re, sys, urllib.error, urllib.request
-          import yaml
-
-          TOKEN = os.environ["GH_TOKEN"]
-          NAME_RE = re.compile(r"^[A-Za-z0-9 ._-]{1,80}$")
-
-          # Anything atom can analyse. A repository whose main language is not
-          # here is skipped with a reason rather than scanned pointlessly.
-          ALIASES = {
-              "c#": "csharp", "csharp": "csharp", ".net": "csharp", "dotnet": "csharp",
-              "javascript": "javascript", "typescript": "typescript",
-              "java": "java", "kotlin": "kotlin",
-              "python": "python", "ruby": "ruby", "php": "php",
-              "rust": "rust", "go": "go",
-          }
-
-          def die(msg):
-              print(f"::error::{msg}")
-              sys.exit(1)
-
-          def api(path):
-              req = urllib.request.Request(
-                  "https://api.github.com" + path,
-                  headers={"Authorization": f"Bearer {TOKEN}",
-                           "Accept": "application/vnd.github+json"})
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  return json.load(r)
-
-          def all_granted():
-              """Every page, not just the first. A single page silently caps
-              discovery at 100 repositories and drops the rest without a word."""
-              out, page = [], 1
-              while True:
-                  batch = api(f"/installation/repositories?per_page=100&page={page}")
-                  repos = batch.get("repositories", [])
-                  out.extend(repos)
-                  if len(repos) < 100:
-                      return out
-                  page += 1
-                  if page > 30:  # 3,000 repositories; far past any real installation
-                      print("::warning::Stopped paging at 3,000 repositories.")
-                      return out
-
-          try:
-              cfg = yaml.safe_load(open("levo-config.yml")) or {}
-          except FileNotFoundError:
-              cfg = {}
-          except Exception as exc:
-              die(f"levo-config.yml is not valid YAML: {exc}")
-
-          if cfg.get("version") not in (None, 1):
-              die(f"Unsupported config version: {cfg.get('version')!r}. Expected 1.")
-
-          defaults = cfg.get("defaults") or {}
-          env_name = str(defaults.get("env_name", "staging"))
-          timeout = max(60, min(2400, int(defaults.get("scan_timeout", 1800))))
-
-          # Per-repository overrides, keyed by "owner/name". Everything in here
-          # is optional; a repository with no entry still gets scanned.
-          overrides = {}
-          for item in (cfg.get("repositories") or []):
-              repo = str(item.get("repo", ""))
-              if repo:
-                  overrides[repo] = item
-
-          exclude = {str(x) for x in (cfg.get("exclude") or [])}
-          exclude.add(os.environ["CONTROL_REPO"])
-
-          # The GitHub App's installation is the source of truth for scope. A
-          # repository listed in config but not granted cannot be scanned, and a
-          # repository granted but not listed still should be.
-          granted = all_granted()
-          if not granted:
-              die("The GitHub App has not been granted access to any repository.")
-
-          entries, skipped = [], []
-          for repo in granted:
-              full = repo["full_name"]
-              if full == os.environ["CONTROL_REPO"]:
-                  continue  # the control repo holds configuration, not an API
-              if full in exclude:
-                  skipped.append((full, "excluded in levo-config.yml"))
-                  continue
-              if repo.get("archived"):
-                  skipped.append((full, "archived"))
-                  continue
-
-              item = overrides.get(full, {})
-
-              lang = str(item.get("language", "")).strip().lower()
-              if not lang:
-                  try:
-                      langs = api(f"/repos/{full}/languages")
-                  except urllib.error.HTTPError as exc:
-                      skipped.append((full, f"could not read languages ({exc.code})"))
-                      continue
-                  if not langs:
-                      skipped.append((full, "GitHub reports no language for this repository"))
-                      continue
-                  # The largest language the scanner reads, not the largest
-                  # overall: HTML or a notebook can outweigh the API beside it.
-                  supported = {n: b for n, b in langs.items() if n.lower() in ALIASES}
-                  if not supported:
-                      top = max(langs.items(), key=lambda kv: kv[1])[0].lower()
-                      skipped.append((full, f"language '{top}' is not supported by the scanner"))
-                      continue
-                  lang = max(supported.items(), key=lambda kv: kv[1])[0].lower()
-
-              resolved = ALIASES.get(lang)
-              if resolved is None:
-                  skipped.append((full, f"language '{lang}' is not supported by the scanner"))
-                  continue
-
-              app = str(item.get("app_name", "")).strip() or repo["name"]
-              if not NAME_RE.match(app):
-                  skipped.append((full, f"app_name {app!r} contains unsupported characters"))
-                  continue
-
-              entries.append({
-                  "repo": full, "owner": repo["owner"]["login"], "name": repo["name"], "id": repo["id"],
-                  "language": resolved, "app_name": app,
-                  "env_name": env_name, "timeout": timeout,
-              })
-
-          print(f"{len(granted)} repository/repositories granted to the GitHub App\n")
-          if entries:
-              print("Will scan:")
-              for e in entries:
-                  print(f"  {e['repo']:45} {e['language']:12} -> {e['app_name']}")
-          if skipped:
-              print("\nSkipped:")
-              for full, reason in skipped:
-                  print(f"  {full:45} {reason}")
-
-          if not entries:
-              die("Nothing to scan. Grant the GitHub App access to a repository, "
-                  "or check the skip reasons above.")
-
-          # GitHub starts at most 256 jobs from one matrix and rejects the rest of
-          # the run with an error that does not say why.
-          if len(entries) > 256:
-              die(f"{len(entries)} repositories qualify, but one run can scan at most 256. "
-                  "Narrow the GitHub App's repository access, or add repositories to "
-                  "exclude in levo-config.yml.")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
-              fh.write(f"matrix={json.dumps({'include': entries})}\n")
-              fh.write(f"count={len(entries)}\n")
-          PY
+          MAX_JOBS: ${{ vars.LEVO_MAX_JOBS }}
+        run: python3 .github/scripts/plan.py
 
   scan:
     needs: plan
     runs-on: ubuntu-latest
-    # Above the 40-minute scan_timeout ceiling, so the scanner's own limit is the one that fires.
-    timeout-minutes: 55
+    # Above what this job's repositories may use between them, so each
+    # repository's own limit is the one that fires.
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.job_timeout) }}
     environment: levo-scan
     # One repository failing must not fail the run.
     continue-on-error: true
     strategy:
       fail-fast: false
       max-parallel: 4
+      # One repository per job; above GitHub's 256 jobs, a few per job.
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
-      - name: Mint a clone token scoped to this repository only
-        id: own-app
-        if: vars.APP_ID != ''
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          owner: ${{ matrix.owner }}
-          repositories: ${{ matrix.name }}
-
-      - name: Get a read pass for this repository only
-        id: levo-pass
-        if: vars.APP_ID == ''
-        env:
-          LEVO_API: ${{ vars.LEVOAI_BASE_URL || 'https://api.levo.ai' }}
-          REPO_ID: ${{ matrix.id }}
-        run: |
-          card=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$LEVO_API" | jq -r .value)
-          resp=$(curl -sS -X POST -H "X-Levo-Workflow-Token: $card" -H "Content-Type: application/json" \
-            -d "{\"repository_id\": $REPO_ID}" "$LEVO_API/github/passes/scan")
-          token=$(echo "$resp" | jq -r '.token // empty' 2>/dev/null || true)
-          [ -n "$token" ] || { echo "::error::Levo refused a read pass: $resp"; exit 1; }
-          echo "::add-mask::$token"
-          echo "token=$token" >> "$GITHUB_OUTPUT"
-          echo "$resp" | jq -c '{permissions, repositories, expires_at}'
-
-      - name: Negative control - token must not reach the control repo
-        env:
-          TOKEN: ${{ steps.own-app.outputs.token || steps.levo-pass.outputs.token }}
-          CONTROL_REPO: ${{ github.repository }}
-        run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $TOKEN" \
-            "https://api.github.com/repos/$CONTROL_REPO")
-          echo "control repo via clone token -> HTTP $code (404 expected)"
-          [ "$code" = "404" ] || { echo "::error::Clone token is too broad."; exit 1; }
-
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: ${{ matrix.repo }}
-          token: ${{ steps.own-app.outputs.token || steps.levo-pass.outputs.token }}
-          path: product
-          fetch-depth: 1
+          sparse-checkout: .github/scripts
           persist-credentials: false
 
+      - name: Pull the scanner
+        run: docker pull --quiet levoai/code-scanner:latest
+
+      # Per repository: a token for that repository alone, a check that it
+      # cannot reach this repository, clone, scan and upload, then revoke.
       - name: Scan and upload
+        id: scan
         env:
+          REPOS: ${{ toJSON(fromJSON(needs.plan.outputs.groups)[matrix.job]) }}
+          JOB: ${{ matrix.job }}
+          APP_ID: ${{ vars.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
           LEVO_AUTH_KEY: ${{ secrets.LEVOAI_AUTH_KEY }}
           LEVO_ORG_ID: ${{ secrets.LEVOAI_ORG_ID }}
           LEVO_BASE_URL: ${{ vars.LEVOAI_BASE_URL || 'https://api.levo.ai' }}
-          APP_NAME: ${{ matrix.app_name }}
-          ENV_NAME: ${{ matrix.env_name }}
-          LANGUAGE: ${{ matrix.language }}
-          SCAN_TIMEOUT: ${{ matrix.timeout }}
-        run: |
-          ARGS=(--language "$LANGUAGE" --scan-timeout "$SCAN_TIMEOUT")
-          if [ -n "$LEVO_AUTH_KEY" ]; then
-            echo "Upload mode: results go to $LEVO_BASE_URL as '$APP_NAME' / $ENV_NAME"
-            ARGS+=(--app-name "$APP_NAME" --env-name "$ENV_NAME" -k "$LEVO_AUTH_KEY" -o "$LEVO_ORG_ID")
-          else
-            echo "::notice::LEVOAI_AUTH_KEY not set - generating the spec locally only."
-            ARGS+=(--no-upload --output /workspace/levo-openapi.json)
-          fi
-          docker run --rm \
-            --user "$(id -u):$(id -g)" \
-            -e LEVO_BASE_URL -e LEVO_SCAN_TIMEOUT="$SCAN_TIMEOUT" \
-            -v "$PWD/product":/workspace:rw \
-            levoai/code-scanner:latest "${ARGS[@]}"
-
-      - name: Summarise what was discovered
-        if: always()
-        run: |
-          SPEC=$(find product \( -name 'levo-openapi.json' -o -name 'openapi_spec.json' \) 2>/dev/null | head -1)
-          if [ -z "$SPEC" ]; then echo "No spec produced."; exit 0; fi
-          python3 - "$SPEC" <<'PY'
-          import json, re, sys
-          spec = json.load(open(sys.argv[1]))
-          methods = {"get","put","post","delete","patch","head","options","trace"}
-          ops = [(p, m.upper()) for p, i in spec.get("paths", {}).items()
-                 for m in i if m.lower() in methods]
-          # A path derived from a source filename is not an endpoint. Counting
-          # them inflates every downstream number, including billing.
-          junk = re.compile(r"/(py|java|go|js|ts|rb|cs|php)$")
-          real = [o for o in ops if not junk.search(o[0])]
-          print(f"{len(real)} real operations ({len(ops) - len(real)} filename artefacts filtered)")
-          for path, method in sorted(real):
-              print(f"  {method:7} {path}")
-          PY
+          CONTROL_REPO: ${{ github.repository }}
+        run: python3 .github/scripts/scan.py
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.scan.outputs.artifact != ''
         with:
-          name: spec-${{ matrix.name }}
-          path: |
-            product/levo-openapi.json
-            product/scan-results/**/openapi_spec.json
+          name: ${{ steps.scan.outputs.artifact }}
+          path: ${{ steps.scan.outputs.path }}
           if-no-files-found: warn
-
-      # Your own Scan App's token is revoked by its action; a Levo pass is revoked here.
-      - name: Revoke the read pass
-        if: always() && steps.levo-pass.outputs.token != ''
-        env:
-          TOKEN: ${{ steps.levo-pass.outputs.token }}
-        run: |
-          curl -s -o /dev/null -w "revoke -> HTTP %{http_code}\n" -X DELETE \
-            -H "Authorization: Bearer $TOKEN" https://api.github.com/installation/token
